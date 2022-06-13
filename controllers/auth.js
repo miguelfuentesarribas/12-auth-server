@@ -1,52 +1,115 @@
+const bcrypt = require('bcryptjs');
 const { response } = require('express');
-const { validationResult } = require('express-validator');
+const { generarJWT } = require('../helpers/jwt');
+const Usuario = require('../models/Usuario');
 
-const crearUsuario = (req, res = response) => {
+const crearUsuario = async (req, res = response) => {
 
-    const errors = validationResult( req ); 
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            ok: false,
-            errors: errors.mapped()
-        })
-    }
     const {email, name, password} = req.body
     console.log( email, name, password );
 
-    return res.json({
-        ok: true,
-        msg: 'Crear usuario nuevo /new'
-    });
+    try {
+     
+        //verificar si no existe un correo igual
+        const usuario = await Usuario.findOne({email})
 
+        if ( usuario ) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'El usuario ya existe con ese email'
+            });
+        };
+        
+        //montar usuario segun modelo
+        const dbUser = new Usuario( req.body );
+
+        //encriptar la contraseña
+        const salt = bcrypt.genSaltSync(10);
+        dbUser.password = bcrypt.hashSync(password, salt);
+
+        //generar JWT
+        const token = await generarJWT( dbUser.id, name);
+
+
+        // crear usuario de la base de datos
+        await dbUser.save()
+
+        //generar respuesta existosa
+        return res.status(200).json({
+            ok: true,
+            uid: dbUser.id,
+            name,
+            token
+        })
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({
+            ok: false,
+            msg: 'Contacte al administrador'
+        });
+    }
 };
 
-const loguearUsuario = (req, res = response) => {
+const loguearUsuario = async(req, res = response) => {
 
-    
-
-    const errors = validationResult( req ); 
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            ok: false,
-            errors: errors.mapped()
-        })
-    }
     const {email, password} = req.body
     console.log( email, password );
 
+    try {
+        
+        //confirmar que el correo se encuentra en la base de datos
+        const dbUser = await Usuario.findOne({email});
+        if (!dbUser) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'El correo no existe'
+            });
+        };
 
-    return res.json({
-        ok: true,
-        msg: 'Loguin de usuario / '
-    });
+        //confirmar si el password hace match
+        const validPassword = bcrypt.compareSync( password, dbUser.password )
+        if (!validPassword) {
+            return res.status(400).json({
+                ok: false,
+                msg: 'contraseña no valida'
+            });
+        }
+    
+        //generar JWT
+        const token = await generarJWT( dbUser.id, dbUser.name);
 
+        //respuesta del servicio
+        // por defecto status 200 ( exitoso )
+        return res.json({
+            ok: true,
+            uid: dbUser.id,
+            name: dbUser.name,
+            token
+        })
+
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({
+            ok: false,
+            msg: 'Contacte al administrador'
+        });
+    }
 };
 
-const revalidarToken = (req, res) => {
+const revalidarToken = async(req, res= response) => {
+
+    const {uid, name} = req;
+
+    //generar JWT
+    const token = await generarJWT( uid, name);
 
     return res.json({
         ok: true,
-        msg: 'Revalidar token'
+        msg: 'Revalidar token',
+        uid,
+        name,
+        token
     });
 
 };
